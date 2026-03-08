@@ -1,6 +1,5 @@
 import os
 import requests
-import csv
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 
@@ -12,27 +11,46 @@ REDASH_API_KEY = os.environ["REDASH_API_KEY"]
 REDASH_QUERY_ID = 1528
 REDASH_BASE = "https://redash.springworks.in"
 
-OPS_CHANNEL_ID = "C0AGRE19V6U"  # testing-sefali
+OPS_CHANNEL_ID = "C0AGRE19V6U"   # #testing-sefali
+
 REPORT_TYPE = os.environ.get("REPORT_TYPE", "9am")
 
 THREAD_FILE = "thread_ts.txt"
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+
 # ── FETCH REDASH DATA ──────────────────────────────────
 
 def fetch_redash():
 
-    url = f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results.csv?api_key={REDASH_API_KEY}"
+    url = f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results"
 
-    r = requests.get(url)
+    headers = {
+        "Authorization": f"Key {REDASH_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "parameters": {
+            "p_check_type": ["ALL"],
+            "p_created_at": "2026-02-01 00:00:00--2026-03-08 23:59:59",
+            "p_department": ["OPERATIONS"],
+            "p_error_status": ["NEW","UNDER_DISCUSSION"],
+            "p_user_email": ["ALL"]
+        }
+    }
+
+    r = requests.post(url, headers=headers, json=payload)
+
     r.raise_for_status()
 
-    rows = list(csv.DictReader(r.text.splitlines()))
-    return rows
+    data = r.json()
+
+    return data["query_result"]["data"]["rows"]
 
 
-# ── SLACK HELPERS ──────────────────────────────────────
+# ── SLACK USERS ────────────────────────────────────────
 
 def get_slack_users():
 
@@ -49,11 +67,14 @@ def get_slack_users():
 
     for u in data["members"]:
         email = u.get("profile", {}).get("email")
+
         if email:
             users[email.lower()] = u["id"]
 
     return users
 
+
+# ── POST TO SLACK ──────────────────────────────────────
 
 def post_slack(text, thread_ts=None):
 
@@ -79,7 +100,7 @@ def post_slack(text, thread_ts=None):
     return r.json()["ts"]
 
 
-# ── BUILD REPORT ───────────────────────────────────────
+# ── BUILD REPORT MESSAGE ───────────────────────────────
 
 def build_report(rows, slack_users):
 
@@ -87,9 +108,14 @@ def build_report(rows, slack_users):
 
     for r in rows:
         email = (r.get("user_email") or "").lower()
+
         counts[email] += 1
 
-    sorted_agents = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    sorted_agents = sorted(
+        counts.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
 
     lines = []
 
@@ -118,7 +144,7 @@ def build_report(rows, slack_users):
     return text
 
 
-# ── MAIN LOGIC ─────────────────────────────────────────
+# ── MAIN REPORT LOGIC ──────────────────────────────────
 
 def run_report():
 
@@ -126,7 +152,7 @@ def run_report():
 
     rows = fetch_redash()
 
-    print("Loading Slack users...")
+    print("Fetching Slack users...")
 
     slack_users = get_slack_users()
 
@@ -134,7 +160,7 @@ def run_report():
 
     if REPORT_TYPE == "9am":
 
-        print("Posting new message")
+        print("Posting new Slack message")
 
         ts = post_slack(message)
 
@@ -143,7 +169,7 @@ def run_report():
 
     else:
 
-        print("Replying in thread")
+        print("Replying in Slack thread")
 
         with open(THREAD_FILE) as f:
             ts = f.read().strip()
@@ -154,4 +180,5 @@ def run_report():
 # ── ENTRY ──────────────────────────────────────────────
 
 if __name__ == "__main__":
+
     run_report()
