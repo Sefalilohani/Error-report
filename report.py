@@ -8,7 +8,9 @@ import urllib.parse
 # ── CONFIG ─────────────────────────────────────────────────────
 
 SLACK_TOKEN = os.environ["SLACK_BOT_TOKEN"]
-REDASH_API_KEY = os.environ["REDASH_API_KEY"]
+
+# Use the query-specific API key (from Redash query settings)
+REDASH_API_KEY = "sMdXlebHKozPGyJjOfAhRpH0S7ggmsSNE8GR5zc7"
 
 REDASH_QUERY_ID = 1528
 REDASH_BASE = "https://redash.springworks.in"
@@ -40,26 +42,42 @@ def fmt_date(dt):
 
 def fetch_redash(start_date, end_date):
     """
-    Redash async flow:
-    1. POST /api/queries/{id}/results  -> returns job_id
-    2. GET  /api/jobs/{job_id}         -> poll until status=3 (success), get query_result_id
-    3. GET  /api/query_results/{id}    -> fetch actual rows
+    Correct Redash async flow:
+    1. POST /api/queries/{id}/results  with correct param names
+    2. GET  /api/jobs/{job_id}         poll until status=3, get query_result_id
+    3. GET  /api/query_results/{id}    fetch rows
+    
+    Parameter names (from query definition, NO p_ prefix):
+    - error_status: comma-separated string e.g. "NEW,UNDER_DISCUSSION"
+    - department: "OPERATIONS"
+    - created_at: dict {"start": "YYYY-MM-DD HH:MM:SS", "end": "YYYY-MM-DD HH:MM:SS"}
+    - check_type: "ALL"
+    - user_email: "ALL"
     """
     headers = {
         "Authorization": f"Key {REDASH_API_KEY}",
         "Content-Type": "application/json"
     }
 
+    # Parse dates
+    start_dt_str = start_date.split()[0] + " " + (start_date.split()[1] if len(start_date.split()) > 1 else "00:00:00")
+    end_dt_str = end_date.split()[0] + " " + (end_date.split()[1] if len(end_date.split()) > 1 else "23:59:59")
+
     payload = {
         "parameters": {
-            "p_check_type": ["ALL"],
-            "p_created_at": f"{start_date}--{end_date}",
-            "p_department": ["OPERATIONS"],
-            "p_error_status": ["NEW", "UNDER_DISCUSSION"],
-            "p_user_email": ["ALL"]
+            "error_status": "NEW,UNDER_DISCUSSION",
+            "department": "OPERATIONS",
+            "created_at": {
+                "start": start_dt_str,
+                "end": end_dt_str
+            },
+            "check_type": "ALL",
+            "user_email": "ALL"
         },
         "max_age": 0
     }
+
+    print(f"Posting to Redash with params: {payload['parameters']}")
 
     # Step 1: trigger the query
     r = requests.post(
@@ -67,6 +85,9 @@ def fetch_redash(start_date, end_date):
         headers=headers,
         json=payload
     )
+    print(f"POST status: {r.status_code}")
+    if r.status_code != 200:
+        print(f"Response body: {r.text[:500]}")
     r.raise_for_status()
     resp = r.json()
 
