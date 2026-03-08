@@ -155,7 +155,7 @@ def run_report():
         SELECT
             u.name AS Name,
             u.email AS Email,
-            COUNT(DISTINCT e.id) AS ErrorCount
+            COUNT(DISTINCT e.id) AS Error Count
         FROM errors e
         INNER JOIN users u ON u.id = e.agent_user_id_fk
         LEFT JOIN teams_user_mapping tum ON tum.user_id_fk = u.id
@@ -177,7 +177,7 @@ def run_report():
     for i, row in enumerate(rows, 1):
         email = row.get("Email", "")
         name = row.get("Name", email)
-        count = row.get("ErrorCount", 0)
+        count = row.get("Error Count", 0)
         total += count
         uid = get_slack_user_id(email)
         tag = f"<@{uid}>" if uid else name
