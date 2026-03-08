@@ -2,11 +2,16 @@ name: SVIN Ops Error Report
 
 on:
   schedule:
-    - cron: '30 3 * * *'
-    - cron: '30 6 * * *'
-    - cron: '30 10 * * *'
-    - cron: '30 12 * * *'
+    - cron: '30 3 * * *'   # 9:00 AM IST
+    - cron: '30 6 * * *'   # 12:00 PM IST
+    - cron: '30 10 * * *'  # 4:00 PM IST
+    - cron: '30 12 * * *'  # 6:00 PM IST
   workflow_dispatch:
+    inputs:
+      report_type:
+        description: 'Report type: 9am / 12pm / 4pm / 6pm'
+        required: false
+        default: '9am'
 
 jobs:
   send-report:
@@ -26,6 +31,11 @@ jobs:
       - name: Determine report type
         id: report_type
         run: |
+          # Use manual input if provided via workflow_dispatch
+          if [ -n "${{ github.event.inputs.report_type }}" ]; then
+            echo "type=${{ github.event.inputs.report_type }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           HOUR=$(date -u +"%H")
           if [ "$HOUR" = "03" ]; then
             echo "type=9am" >> $GITHUB_OUTPUT
@@ -40,6 +50,5 @@ jobs:
       - name: Run error report
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          REDASH_API_KEY: ${{ secrets.REDASH_API_KEY }}
           REPORT_TYPE: ${{ steps.report_type.outputs.type }}
         run: python report.py
