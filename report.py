@@ -1,7 +1,7 @@
 """
 SVIN Ops Error Report - GitHub Actions
 Runs at 9AM, 12PM, 4PM, 6PM IST
-Posts to #sv-in-ops (CF0RH10M8)
+Posts to #testing-sefali (C0AGRE19V6U)
 """
 
 
