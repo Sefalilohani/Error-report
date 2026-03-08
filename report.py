@@ -9,7 +9,6 @@ import urllib.parse
 
 SLACK_TOKEN = os.environ["SLACK_BOT_TOKEN"]
 
-# Use the query-specific API key (from Redash query settings)
 REDASH_API_KEY = "sMdXlebHKozPGyJjOfAhRpH0S7ggmsSNE8GR5zc7"
 
 REDASH_QUERY_ID = 1528
@@ -38,48 +37,33 @@ def fmt_date(dt):
     return f"{ordinal(dt.day)} {dt.strftime('%B %Y')}"
 
 
-# ── FETCH REDASH DATA (async job pattern) ───────────────────
+# ── FETCH REDASH DATA ─────────────────────────────────────────
 
 def fetch_redash(start_date, end_date):
-    """
-    Correct Redash async flow:
-    1. POST /api/queries/{id}/results  with correct param names
-    2. GET  /api/jobs/{job_id}         poll until status=3, get query_result_id
-    3. GET  /api/query_results/{id}    fetch rows
-    
-    Parameter names (from query definition, NO p_ prefix):
-    - error_status: comma-separated string e.g. "NEW,UNDER_DISCUSSION"
-    - department: "OPERATIONS"
-    - created_at: dict {"start": "YYYY-MM-DD HH:MM:SS", "end": "YYYY-MM-DD HH:MM:SS"}
-    - check_type: "ALL"
-    - user_email: "ALL"
-    """
     headers = {
         "Authorization": f"Key {REDASH_API_KEY}",
         "Content-Type": "application/json"
     }
 
-    # Parse dates
-    start_dt_str = start_date.split()[0] + " " + (start_date.split()[1] if len(start_date.split()) > 1 else "00:00:00")
-    end_dt_str = end_date.split()[0] + " " + (end_date.split()[1] if len(end_date.split()) > 1 else "23:59:59")
+    start_dt_str = start_date.split()[0] + " 00:00:00"
+    end_dt_str = end_date.split()[0] + " 23:59:59"
 
     payload = {
         "parameters": {
-            "error_status": "NEW,UNDER_DISCUSSION",
-            "department": "OPERATIONS",
+            "error_status": ["NEW", "UNDER_DISCUSSION"],  # ✅ array, not string
+            "department": ["OPERATIONS"],
             "created_at": {
                 "start": start_dt_str,
                 "end": end_dt_str
             },
-            "check_type": "ALL",
-            "user_email": "ALL"
+            "check_type": ["ALL"],
+            "user_email": ["ALL"]
         },
         "max_age": 0
     }
 
     print(f"Posting to Redash with params: {payload['parameters']}")
 
-    # Step 1: trigger the query
     r = requests.post(
         f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results",
         headers=headers,
@@ -91,12 +75,10 @@ def fetch_redash(start_date, end_date):
     r.raise_for_status()
     resp = r.json()
 
-    # If result is cached and returned immediately
     if "query_result" in resp:
         print("Got cached result immediately")
         return resp["query_result"]["data"]["rows"]
 
-    # Step 2: poll the job
     job_id = resp["job"]["id"]
     print(f"Job started: {job_id}, polling...")
 
@@ -111,15 +93,14 @@ def fetch_redash(start_date, end_date):
         status = job["status"]
         print(f"  Poll {attempt+1}: status={status}")
 
-        if status == 3:  # success
+        if status == 3:
             query_result_id = job["query_result_id"]
             break
-        elif status == 4:  # error
+        elif status == 4:
             raise Exception(f"Redash job failed: {job.get('error')}")
     else:
         raise Exception("Redash job timed out after 60 seconds")
 
-    # Step 3: fetch results
     print(f"Fetching results: query_result_id={query_result_id}")
     rr = requests.get(
         f"{REDASH_BASE}/api/query_results/{query_result_id}",
@@ -208,10 +189,7 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
 
     for i, (email, count) in enumerate(sorted_agents, 1):
         slack_id = slack_users.get(email)
-        if slack_id:
-            mention = f"<@{slack_id}>"
-        else:
-            mention = name_by_email.get(email, email)
+        mention = f"<@{slack_id}>" if slack_id else name_by_email.get(email, email)
         lines.append(f"{i}. {mention} - {count}")
 
     total = sum(counts.values())
@@ -219,9 +197,9 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
     end_str = fmt_date(end_dt)
 
     if report_type == "9am":
-        heading = f"U0001f6a8 *Daily Error Report — {end_str}*"
+        heading = f"\U0001f6a8 *Daily Error Report — {end_str}*"
     else:
-        heading = f"U0001f6a8 *Updated Error Report | Status: NEW & UNDER DISCUSSION — {end_str}*"
+        heading = f"\U0001f6a8 *Updated Error Report | Status: NEW & UNDER DISCUSSION — {end_str}*"
 
     start_param = urllib.parse.quote(f"{start_dt.strftime('%Y-%m-%d')} 00:00:00")
     end_param = urllib.parse.quote(f"{end_dt.strftime('%Y-%m-%d')} 23:59:59")
@@ -240,8 +218,8 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
         f"*Status: NEW & UNDER DISCUSSION | Department: OPERATIONS*\n\n"
         + "\n".join(lines)
         + f"\n*Total - {total}*\n\n"
-        + f"U0001f4ca <{redash_url}|View Full Report on Redash>\n\n"
-        + "_Tagged agents: Please review and resolve/rectify your open errors at the earliest and acknowledge the message U0001f64f_\n\n"
+        + f"\U0001f4ca <{redash_url}|View Full Report on Redash>\n\n"
+        + "_Tagged agents: Please review and resolve/rectify your open errors at the earliest and acknowledge the message \U0001f64f_\n\n"
         + "CC: <!subteam^S08T66C76CS> <@UPAMYUZAS> <@U06T72TD4BD>"
     )
     return text
