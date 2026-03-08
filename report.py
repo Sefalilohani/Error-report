@@ -1,5 +1,4 @@
 import os
-import time
 import requests
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
@@ -40,74 +39,39 @@ def fmt_date(dt):
 # ── FETCH REDASH DATA ─────────────────────────────────────────
 
 def fetch_redash(start_date, end_date):
-    headers = {
-        "Authorization": f"Key {REDASH_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
+    """
+    Uses GET /api/queries/{id}/results.json with p_ prefixed query params.
+    This works purely with the API key — no session cookie or job polling needed.
+    The separator for multi-select enums is "," (as defined in the query options).
+    """
     start_dt_str = start_date.split()[0] + " 00:00:00"
     end_dt_str = end_date.split()[0] + " 23:59:59"
 
-    payload = {
-        "parameters": {
-            "error_status": ["NEW", "UNDER_DISCUSSION"],  # ✅ array, not string
-            "department": ["OPERATIONS"],
-            "created_at": {
-                "start": start_dt_str,
-                "end": end_dt_str
-            },
-            "check_type": ["ALL"],
-            "user_email": ["ALL"]
-        },
-        "max_age": 0
+    # Multi-select enum params: Redash joins array values with separator ","
+    # So we pass the comma-joined string directly via the GET p_ param style
+    params = {
+        "api_key": REDASH_API_KEY,
+        "p_error_status": "NEW,UNDER_DISCUSSION",
+        "p_department": "OPERATIONS",
+        "p_created_at": f"{start_dt_str}--{end_dt_str}",
+        "p_check_type": "ALL",
+        "p_user_email": "ALL",
     }
 
-    print(f"Posting to Redash with params: {payload['parameters']}")
+    url = f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results.json"
+    print(f"Fetching Redash: {url}")
+    print(f"Params: {params}")
 
-    r = requests.post(
-        f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results",
-        headers=headers,
-        json=payload
-    )
-    print(f"POST status: {r.status_code}")
+    r = requests.get(url, params=params, timeout=60)
+    print(f"GET status: {r.status_code}")
     if r.status_code != 200:
         print(f"Response body: {r.text[:500]}")
     r.raise_for_status()
-    resp = r.json()
 
-    if "query_result" in resp:
-        print("Got cached result immediately")
-        return resp["query_result"]["data"]["rows"]
-
-    job_id = resp["job"]["id"]
-    print(f"Job started: {job_id}, polling...")
-
-    for attempt in range(30):
-        time.sleep(2)
-        jr = requests.get(
-            f"{REDASH_BASE}/api/jobs/{job_id}",
-            headers=headers
-        )
-        jr.raise_for_status()
-        job = jr.json()["job"]
-        status = job["status"]
-        print(f"  Poll {attempt+1}: status={status}")
-
-        if status == 3:
-            query_result_id = job["query_result_id"]
-            break
-        elif status == 4:
-            raise Exception(f"Redash job failed: {job.get('error')}")
-    else:
-        raise Exception("Redash job timed out after 60 seconds")
-
-    print(f"Fetching results: query_result_id={query_result_id}")
-    rr = requests.get(
-        f"{REDASH_BASE}/api/query_results/{query_result_id}",
-        headers=headers
-    )
-    rr.raise_for_status()
-    return rr.json()["query_result"]["data"]["rows"]
+    data = r.json()
+    rows = data["query_result"]["data"]["rows"]
+    print(f"Got {len(rows)} rows")
+    return rows
 
 
 # ── SLACK USERS ───────────────────────────────────────────────
@@ -149,7 +113,7 @@ def post_slack(text, thread_ts=None):
     return resp["ts"]
 
 
-# ── FIND TODAY'S 9AM THREAD ────────────────────────────────
+# ── FIND TODAY'S 9AM THREAD ────────────────────────────────────
 
 def find_9am_thread_ts():
     if os.path.exists(THREAD_FILE):
@@ -158,9 +122,8 @@ def find_9am_thread_ts():
             if ts:
                 return ts
     today_str = datetime.now(IST).strftime("%d %B %Y")
-    url = "https://slack.com/api/conversations.history"
     r = requests.get(
-        url,
+        "https://slack.com/api/conversations.history",
         headers={"Authorization": f"Bearer {SLACK_TOKEN}"},
         params={"channel": OPS_CHANNEL_ID, "limit": 20}
     )
@@ -171,7 +134,7 @@ def find_9am_thread_ts():
     raise Exception("Could not find today's 9 AM report thread.")
 
 
-# ── BUILD REPORT MESSAGE ──────────────────────────────────
+# ── BUILD REPORT MESSAGE ───────────────────────────────────────
 
 def build_report(rows, slack_users, start_dt, end_dt, report_type):
     counts = defaultdict(int)
@@ -197,9 +160,9 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
     end_str = fmt_date(end_dt)
 
     if report_type == "9am":
-        heading = f"\U0001f6a8 *Daily Error Report — {end_str}*"
+        heading = f"\U0001f6a8 *Daily Error Report \u2014 {end_str}*"
     else:
-        heading = f"\U0001f6a8 *Updated Error Report | Status: NEW & UNDER DISCUSSION — {end_str}*"
+        heading = f"\U0001f6a8 *Updated Error Report | Status: NEW & UNDER DISCUSSION \u2014 {end_str}*"
 
     start_param = urllib.parse.quote(f"{start_dt.strftime('%Y-%m-%d')} 00:00:00")
     end_param = urllib.parse.quote(f"{end_dt.strftime('%Y-%m-%d')} 23:59:59")
@@ -225,7 +188,7 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
     return text
 
 
-# ── MAIN REPORT LOGIC ──────────────────────────────────────
+# ── MAIN ───────────────────────────────────────────────────────
 
 def run_report():
     now = datetime.now(IST)
@@ -257,8 +220,6 @@ def run_report():
         post_slack(message, ts)
         print(f"Replied in thread: {ts}")
 
-
-# ── ENTRY ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     run_report()
