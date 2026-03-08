@@ -1,0 +1,45 @@
+name: SVIN Ops Error Report
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+    - cron: '30 6 * * *'
+    - cron: '30 10 * * *'
+    - cron: '30 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine report type
+        id: report_type
+        run: |
+          HOUR=$(date -u +"%H")
+          if [ "$HOUR" = "03" ]; then
+            echo "type=9am" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "06" ]; then
+            echo "type=12pm" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "10" ]; then
+            echo "type=4pm" >> $GITHUB_OUTPUT
+          else
+            echo "type=6pm" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run error report
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          REDASH_API_KEY: ${{ secrets.REDASH_API_KEY }}
+          REPORT_TYPE: ${{ steps.report_type.outputs.type }}
+        run: python report.py
