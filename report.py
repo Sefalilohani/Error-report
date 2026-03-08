@@ -14,7 +14,7 @@ REDASH_API_KEY = "sMdXlebHKozPGyJjOfAhRpH0S7ggmsSNE8GR5zc7"
 REDASH_QUERY_ID = 1528
 REDASH_BASE = "https://redash.springworks.in"
 
-OPS_CHANNEL_ID = "C0AGRE19V6U"  # #testing-sefali (change to CF0RH10M8 for production)
+OPS_CHANNEL_ID = "CF0RH10M8"  #sv-in-ops (change to CF0RH10M8 for production)
 
 REPORT_TYPE = os.environ.get("REPORT_TYPE", "9am")
 
