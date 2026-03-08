@@ -48,18 +48,23 @@ def redash_query(params):
     url = f"{REDASH_BASE_URL}/api/queries/{REDASH_QUERY_ID}/results"
 
     headers = {
-        "Authorization": f"Key {REDASH_API_KEY}"
+        "Authorization": f"Key {REDASH_API_KEY}",
+        "Content-Type": "application/json"
     }
 
-    response = requests.get(
+    payload = {
+        "parameters": params
+    }
+
+    resp = requests.post(
         url,
         headers=headers,
-        params=params
+        json=payload
     )
 
-    response.raise_for_status()
+    resp.raise_for_status()
 
-    data = response.json()
+    data = resp.json()
 
     rows = data["query_result"]["data"]["rows"]
 
@@ -95,19 +100,17 @@ def post_to_slack(message, thread_ts=None):
 def build_message(rows):
 
     today = datetime.now(IST)
-
     report_date = format_date(today)
-
-    lines = []
 
     counts = {}
 
     for row in rows:
         agent = row.get("user_email", "Unknown")
-
         counts[agent] = counts.get(agent, 0) + 1
 
     sorted_agents = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+
+    lines = []
 
     for i, (agent, count) in enumerate(sorted_agents, start=1):
         lines.append(f"{i}. @{agent} - {count}")
@@ -133,11 +136,11 @@ def run_report():
     print(f"Running {REPORT_TYPE} report...")
 
     params = {
-        "p_check_type": '["ALL"]',
+        "p_check_type": ["ALL"],
         "p_created_at": "2025-09-25 00:00:00--2026-03-08 23:59:59",
-        "p_department": '["OPERATIONS"]',
-        "p_error_status": '["NEW","UNDER_DISCUSSION"]',
-        "p_user_email": '["ALL"]'
+        "p_department": ["OPERATIONS"],
+        "p_error_status": ["NEW", "UNDER_DISCUSSION"],
+        "p_user_email": ["ALL"]
     }
 
     rows = redash_query(params)
