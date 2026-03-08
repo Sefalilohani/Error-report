@@ -34,11 +34,12 @@ def fetch_redash():
     payload = {
         "parameters": {
             "p_check_type": ["ALL"],
-            "p_created_at": "2026-02-01 00:00:00--2026-03-08 23:59:59",
+            "p_created_at": "2026-01-11 00:00:00--2026-01-31 23:59:59",
             "p_department": ["OPERATIONS"],
-            "p_error_status": ["NEW","UNDER_DISCUSSION"],
+            "p_error_status": ["ALL"],
             "p_user_email": ["ALL"]
-        }
+        },
+        "max_age": 0
     }
 
     r = requests.post(url, headers=headers, json=payload)
