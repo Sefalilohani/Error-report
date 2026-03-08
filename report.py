@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
@@ -20,6 +21,8 @@ THREAD_FILE = "thread_ts.txt"
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
+START_DATE = "2025-09-25 00:00:00"
+
 
 # ── HELPERS ────────────────────────────────────────────────────
 
@@ -33,41 +36,20 @@ def fmt_date(dt):
     return f"{ordinal(dt.day)} {dt.strftime('%B %Y')}"
 
 
-# ── FETCH START DATE ───────────────────────────────────────
-
-def fetch_start_date():
-    """Dynamically find oldest pending error date from Redash."""
-    url = f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results"
-    headers = {
-        "Authorization": f"Key {REDASH_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "parameters": {
-            "p_check_type": ["ALL"],
-            "p_created_at": "2020-01-01 00:00:00--2030-12-31 23:59:59",
-            "p_department": ["OPERATIONS"],
-            "p_error_status": ["NEW", "UNDER_DISCUSSION"],
-            "p_user_email": ["ALL"]
-        },
-        "max_age": 0
-    }
-    r = requests.post(url, headers=headers, json=payload)
-    r.raise_for_status()
-    data = r.json()
-    rows = data["query_result"]["data"]["rows"]
-    # Default fallback start date
-    return "2025-09-25 00:00:00"
-
-
-# ── FETCH REDASH DATA ─────────────────────────────────────
+# ── FETCH REDASH DATA (async job pattern) ───────────────────
 
 def fetch_redash(start_date, end_date):
-    url = f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results"
+    """
+    Redash async flow:
+    1. POST /api/queries/{id}/results  -> returns job_id
+    2. GET  /api/jobs/{job_id}         -> poll until status=3 (success), get query_result_id
+    3. GET  /api/query_results/{id}    -> fetch actual rows
+    """
     headers = {
         "Authorization": f"Key {REDASH_API_KEY}",
         "Content-Type": "application/json"
     }
+
     payload = {
         "parameters": {
             "p_check_type": ["ALL"],
@@ -78,10 +60,52 @@ def fetch_redash(start_date, end_date):
         },
         "max_age": 0
     }
-    r = requests.post(url, headers=headers, json=payload)
+
+    # Step 1: trigger the query
+    r = requests.post(
+        f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results",
+        headers=headers,
+        json=payload
+    )
     r.raise_for_status()
-    data = r.json()
-    return data["query_result"]["data"]["rows"]
+    resp = r.json()
+
+    # If result is cached and returned immediately
+    if "query_result" in resp:
+        print("Got cached result immediately")
+        return resp["query_result"]["data"]["rows"]
+
+    # Step 2: poll the job
+    job_id = resp["job"]["id"]
+    print(f"Job started: {job_id}, polling...")
+
+    for attempt in range(30):
+        time.sleep(2)
+        jr = requests.get(
+            f"{REDASH_BASE}/api/jobs/{job_id}",
+            headers=headers
+        )
+        jr.raise_for_status()
+        job = jr.json()["job"]
+        status = job["status"]
+        print(f"  Poll {attempt+1}: status={status}")
+
+        if status == 3:  # success
+            query_result_id = job["query_result_id"]
+            break
+        elif status == 4:  # error
+            raise Exception(f"Redash job failed: {job.get('error')}")
+    else:
+        raise Exception("Redash job timed out after 60 seconds")
+
+    # Step 3: fetch results
+    print(f"Fetching results: query_result_id={query_result_id}")
+    rr = requests.get(
+        f"{REDASH_BASE}/api/query_results/{query_result_id}",
+        headers=headers
+    )
+    rr.raise_for_status()
+    return rr.json()["query_result"]["data"]["rows"]
 
 
 # ── SLACK USERS ───────────────────────────────────────────────
@@ -207,9 +231,8 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
 def run_report():
     now = datetime.now(IST)
     end_date_str = now.strftime("%Y-%m-%d 23:59:59")
+    start_date_str = START_DATE
 
-    print("Fetching start date...")
-    start_date_str = fetch_start_date()
     print(f"Date range: {start_date_str} to {end_date_str}")
 
     print("Fetching Redash data...")
