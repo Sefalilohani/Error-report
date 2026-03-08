@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict
@@ -40,38 +41,72 @@ def fmt_date(dt):
 
 def fetch_redash(start_date, end_date):
     """
-    Uses GET /api/queries/{id}/results.json with p_ prefixed query params.
-    This works purely with the API key — no session cookie or job polling needed.
-    The separator for multi-select enums is "," (as defined in the query options).
+    Strategy:
+    - POST to /api/queries/{id}/results with max_age=0 to trigger execution
+    - If result comes back immediately (query_result key), use it
+    - If a job is returned, wait then re-POST with max_age=60 to pick up the cached result
+    - Retry up to 15 times (30 seconds total) until query_result is in the response
     """
+    headers = {
+        "Authorization": f"Key {REDASH_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
     start_dt_str = start_date.split()[0] + " 00:00:00"
     end_dt_str = end_date.split()[0] + " 23:59:59"
 
-    # Multi-select enum params: Redash joins array values with separator ","
-    # So we pass the comma-joined string directly via the GET p_ param style
-    params = {
-        "api_key": REDASH_API_KEY,
-        "p_error_status": "NEW,UNDER_DISCUSSION",
-        "p_department": "OPERATIONS",
-        "p_created_at": f"{start_dt_str}--{end_dt_str}",
-        "p_check_type": "ALL",
-        "p_user_email": "ALL",
+    payload = {
+        "parameters": {
+            "error_status": ["NEW", "UNDER_DISCUSSION"],
+            "department": ["OPERATIONS"],
+            "created_at": {
+                "start": start_dt_str,
+                "end": end_dt_str
+            },
+            "check_type": ["ALL"],
+            "user_email": ["ALL"]
+        },
+        "max_age": 0  # Force fresh execution on first call
     }
 
-    url = f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results.json"
-    print(f"Fetching Redash: {url}")
-    print(f"Params: {params}")
+    url = f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results"
 
-    r = requests.get(url, params=params, timeout=60)
-    print(f"GET status: {r.status_code}")
-    if r.status_code != 200:
-        print(f"Response body: {r.text[:500]}")
+    print(f"Triggering Redash query: {start_dt_str} → {end_dt_str}")
+    r = requests.post(url, headers=headers, json=payload, timeout=30)
+    print(f"POST status: {r.status_code}")
+    if r.status_code not in (200, 201):
+        print(f"Response: {r.text[:500]}")
     r.raise_for_status()
+    resp = r.json()
 
-    data = r.json()
-    rows = data["query_result"]["data"]["rows"]
-    print(f"Got {len(rows)} rows")
-    return rows
+    # Immediate result (cached)
+    if "query_result" in resp:
+        rows = resp["query_result"]["data"]["rows"]
+        print(f"Got immediate result: {len(rows)} rows")
+        return rows
+
+    # Job queued — poll by re-POSTing with max_age=60 to pick up the result once done
+    job_id = resp.get("job", {}).get("id", "unknown")
+    print(f"Query job queued (id={job_id}), polling for result...")
+
+    poll_payload = {**payload, "max_age": 60}  # Accept result up to 60s old
+
+    for attempt in range(20):
+        time.sleep(3)
+        print(f"  Poll attempt {attempt + 1}/20...")
+        r2 = requests.post(url, headers=headers, json=poll_payload, timeout=30)
+        if r2.status_code not in (200, 201):
+            print(f"  Poll status {r2.status_code}: {r2.text[:200]}")
+            continue
+        resp2 = r2.json()
+        if "query_result" in resp2:
+            rows = resp2["query_result"]["data"]["rows"]
+            print(f"  Got result: {len(rows)} rows")
+            return rows
+        new_job = resp2.get("job", {})
+        print(f"  Still running, job status={new_job.get('status')}")
+
+    raise Exception("Timed out waiting for Redash query result after 60 seconds")
 
 
 # ── SLACK USERS ───────────────────────────────────────────────
