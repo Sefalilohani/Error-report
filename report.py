@@ -14,7 +14,7 @@ REDASH_API_KEY = "sMdXlebHKozPGyJjOfAhRpH0S7ggmsSNE8GR5zc7"
 REDASH_QUERY_ID = 1528
 REDASH_BASE = "https://redash.springworks.in"
 
-OPS_CHANNEL_ID = "C0AGRE19V6U"  # #testing-sefali
+OPS_CHANNEL_ID = "C0AGRE19V6U"  # #testing-sefali (change to CF0RH10M8 for production)
 
 REPORT_TYPE = os.environ.get("REPORT_TYPE", "9am")
 
@@ -30,7 +30,7 @@ START_DATE = "2025-09-25 00:00:00"
 def ordinal(n):
     if 11 <= n <= 13:
         return f"{n}th"
-    return f"{n}{['th','st','nd','rd','th'][min(n%10,4)]}"
+    return f"{n}{['th','st','nd','rd','th'][min(n % 10, 4)]}"
 
 
 def fmt_date(dt):
@@ -41,11 +41,10 @@ def fmt_date(dt):
 
 def fetch_redash(start_date, end_date):
     """
-    Strategy:
-    - POST to /api/queries/{id}/results with max_age=0 to trigger execution
-    - If result comes back immediately (query_result key), use it
-    - If a job is returned, wait then re-POST with max_age=60 to pick up the cached result
-    - Retry up to 15 times (30 seconds total) until query_result is in the response
+    POST to /api/queries/{id}/results with max_age=0 to trigger fresh execution.
+    If result is cached, it returns immediately.
+    If a job is queued, re-POST with max_age=60 until the result is ready.
+    Works entirely with API key auth — no session cookie or /api/jobs polling needed.
     """
     headers = {
         "Authorization": f"Key {REDASH_API_KEY}",
@@ -66,7 +65,7 @@ def fetch_redash(start_date, end_date):
             "check_type": ["ALL"],
             "user_email": ["ALL"]
         },
-        "max_age": 0  # Force fresh execution on first call
+        "max_age": 0  # Force fresh execution
     }
 
     url = f"{REDASH_BASE}/api/queries/{REDASH_QUERY_ID}/results"
@@ -79,17 +78,17 @@ def fetch_redash(start_date, end_date):
     r.raise_for_status()
     resp = r.json()
 
-    # Immediate result (cached)
+    # Immediate cached result
     if "query_result" in resp:
         rows = resp["query_result"]["data"]["rows"]
         print(f"Got immediate result: {len(rows)} rows")
         return rows
 
-    # Job queued — poll by re-POSTing with max_age=60 to pick up the result once done
+    # Job queued — poll by re-POSTing with max_age=60
     job_id = resp.get("job", {}).get("id", "unknown")
     print(f"Query job queued (id={job_id}), polling for result...")
 
-    poll_payload = {**payload, "max_age": 60}  # Accept result up to 60s old
+    poll_payload = {**payload, "max_age": 60}
 
     for attempt in range(20):
         time.sleep(3)
@@ -151,22 +150,44 @@ def post_slack(text, thread_ts=None):
 # ── FIND TODAY'S 9AM THREAD ────────────────────────────────────
 
 def find_9am_thread_ts():
+    # Check local file first (persists within same workflow run)
     if os.path.exists(THREAD_FILE):
         with open(THREAD_FILE) as f:
             ts = f.read().strip()
             if ts:
+                print(f"Found thread ts from file: {ts}")
                 return ts
-    today_str = datetime.now(IST).strftime("%d %B %Y")
+
+    # Search Slack for today's report message
+    now = datetime.now(IST)
+    today_start = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=IST).timestamp()
+
     r = requests.get(
         "https://slack.com/api/conversations.history",
         headers={"Authorization": f"Bearer {SLACK_TOKEN}"},
-        params={"channel": OPS_CHANNEL_ID, "limit": 20}
+        params={
+            "channel": OPS_CHANNEL_ID,
+            "oldest": str(today_start),
+            "limit": 50
+        }
     )
     data = r.json()
+    if not data.get("ok"):
+        raise Exception(f"Slack history error: {data.get('error')}")
+
     for msg in data.get("messages", []):
-        if "Daily Error Report" in msg.get("text", "") and today_str in msg.get("text", ""):
-            return msg["ts"]
-    raise Exception("Could not find today's 9 AM report thread.")
+        text = msg.get("text", "")
+        if "Daily Error Report" in text or "Error Report" in text:
+            ts = msg["ts"]
+            print(f"Found today's report thread in Slack: {ts}")
+            with open(THREAD_FILE, "w") as f:
+                f.write(ts)
+            return ts
+
+    raise Exception(
+        "Could not find today's 9 AM report thread. "
+        "Run with REPORT_TYPE=9am first to create the thread."
+    )
 
 
 # ── BUILD REPORT MESSAGE ───────────────────────────────────────
@@ -231,6 +252,7 @@ def run_report():
     start_date_str = START_DATE
 
     print(f"Date range: {start_date_str} to {end_date_str}")
+    print(f"Report type: {REPORT_TYPE}")
 
     print("Fetching Redash data...")
     rows = fetch_redash(start_date_str, end_date_str)
@@ -244,13 +266,13 @@ def run_report():
     message = build_report(rows, slack_users, start_dt, now, REPORT_TYPE)
 
     if REPORT_TYPE == "9am":
-        print("Posting new Slack message")
+        print("Posting new Slack message (9am report)")
         ts = post_slack(message)
         with open(THREAD_FILE, "w") as f:
             f.write(ts)
         print(f"Posted. Thread ts: {ts}")
     else:
-        print("Replying in Slack thread")
+        print(f"Replying in Slack thread ({REPORT_TYPE} report)")
         ts = find_9am_thread_ts()
         post_slack(message, ts)
         print(f"Replied in thread: {ts}")
