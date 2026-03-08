@@ -20,7 +20,7 @@ REDASH_BASE_URL = os.environ.get(
 
 REDASH_QUERY_ID = 1528
 
-OPS_CHANNEL_ID = "C0AGRE19V6U"
+OPS_CHANNEL_ID = "C0AGRE19V6U"   # testing-sefali
 SUBTEAM_ID = "S08T66C76CS"
 
 CC_USERS = "<@UPAMYUZAS> <@U06T72TD4BD>"
@@ -45,7 +45,7 @@ def format_date(dt):
 # ── Redash Query ───────────────────────────────────────
 def redash_query(params):
 
-    url = f"{REDASH_BASE_URL}/api/queries/{REDASH_QUERY_ID}/results"
+    url = f"{REDASH_BASE_URL}/api/query_results"
 
     headers = {
         "Authorization": f"Key {REDASH_API_KEY}",
@@ -53,6 +53,7 @@ def redash_query(params):
     }
 
     payload = {
+        "query_id": REDASH_QUERY_ID,
         "parameters": params
     }
 
