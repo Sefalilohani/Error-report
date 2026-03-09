@@ -47,6 +47,14 @@ jobs:
             echo "type=6pm" >> $GITHUB_OUTPUT
           fi
 
+      - name: Debug token shape
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          echo "Token length: ${#SLACK_BOT_TOKEN}"
+          echo "First 8 chars: ${SLACK_BOT_TOKEN:0:8}"
+          echo "Last 8 chars: ${SLACK_BOT_TOKEN: -8}"
+
       - name: Run error report
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
