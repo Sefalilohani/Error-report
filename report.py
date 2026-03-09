@@ -7,7 +7,7 @@ import urllib.parse
 
 # ── CONFIG ─────────────────────────────────────────────────────
 
-SLACK_TOKEN = os.environ["SLACK_BOT_TOKEN"].lower()
+SLACK_TOKEN = os.environ["SLACK_BOT_TOKEN"]
 
 REDASH_API_KEY = "sMdXlebHKozPGyJjOfAhRpH0S7ggmsSNE8GR5zc7"
 
