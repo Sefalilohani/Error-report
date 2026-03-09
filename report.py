@@ -114,14 +114,27 @@ def fetch_redash(start_date, end_date):
 # ── SLACK USERS ───────────────────────────────────────────────
 
 def get_slack_users():
-    url = "https://slack.com/api/users.list"
-    r = requests.get(url, headers={"Authorization": f"Bearer {SLACK_TOKEN}"})
-    data = r.json()
     users = {}
-    for u in data.get("members", []):
-        email = u.get("profile", {}).get("email")
-        if email:
-            users[email.lower()] = u["id"]
+    cursor = None
+    while True:
+        params = {"limit": 200}
+        if cursor:
+            params["cursor"] = cursor
+        r = requests.get(
+            "https://slack.com/api/users.list",
+            headers={"Authorization": f"Bearer {SLACK_TOKEN}"},
+            params=params
+        )
+        data = r.json()
+        if not data.get("ok"):
+            raise Exception(f"Slack users.list error: {data.get('error')}")
+        for u in data.get("members", []):
+            email = u.get("profile", {}).get("email")
+            if email:
+                users[email.lower()] = u["id"]
+        cursor = data.get("response_metadata", {}).get("next_cursor")
+        if not cursor:
+            break
     return users
 
 
@@ -236,7 +249,7 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
 
     text = (
         f"{heading}\n"
-        f"*{start_str} to {end_str}*\n"
+        f"*Error pending from {start_str} to {end_str}*\n"
         f"*Status: NEW & UNDER DISCUSSION | Department: OPERATIONS*\n\n"
         + "\n".join(lines)
         + f"\n*Total - {total}*\n\n"
