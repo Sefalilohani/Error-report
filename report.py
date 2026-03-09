@@ -8,8 +8,9 @@ import urllib.parse
 # ── CONFIG ─────────────────────────────────────────────────────
 
 _raw_token = os.environ["SLACK_BOT_TOKEN"]
-_fixed = _raw_token[:4].lower() + _raw_token[4:]   # Fix X→x (browser autocapitalizes first char)
-SLACK_TOKEN = _fixed[:-8] + _fixed[-8:].replace("1it2ptnt", "1It2ptnt")  # Fix i→I (browser autocorrects uppercase I)
+# Browser lowercases all uppercase letters in the token suffix when saving to GitHub Secrets
+# Numeric part (positions 4-30) is unaffected; restore prefix and correct suffix
+SLACK_TOKEN = "xoxb" + _raw_token[4:31] + "bFqMGfkmHBzvLRtU1It2ptnt"
 
 REDASH_API_KEY = "sMdXlebHKozPGyJjOfAhRpH0S7ggmsSNE8GR5zc7"
 
