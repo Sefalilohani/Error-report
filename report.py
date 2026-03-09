@@ -228,7 +228,22 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
         lines.append(f"{i}. {mention} - {count}")
 
     total = sum(counts.values())
-    start_str = fmt_date(start_dt)
+
+    # Find oldest error date from actual Redash data
+    oldest_dt = None
+    for row in rows:
+        raw = row.get("created_at") or row.get("Created At") or row.get("date") or row.get("Date")
+        if raw:
+            try:
+                dt = datetime.strptime(str(raw)[:10], "%Y-%m-%d").replace(tzinfo=IST)
+                if oldest_dt is None or dt < oldest_dt:
+                    oldest_dt = dt
+            except ValueError:
+                pass
+    if oldest_dt is None:
+        oldest_dt = start_dt  # fallback to configured start date
+
+    start_str = fmt_date(oldest_dt)
     end_str = fmt_date(end_dt)
 
     if report_type == "9am":
