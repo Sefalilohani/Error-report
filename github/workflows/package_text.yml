@@ -1,0 +1,27 @@
+name: SpringVerify Package Text Bot
+
+  on:
+    schedule:
+      - cron: '*/15 * * * *'   # Every 15 minutes
+    workflow_dispatch:           # Manual trigger from GitHub Actions UI
+
+  jobs:
+    run-bot:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Checkout code
+          uses: actions/checkout@v4
+
+        - name: Set up Python
+          uses: actions/setup-python@v5
+          with:
+            python-version: '3.11'
+
+        - name: Install dependencies
+          run: pip install requests anthropic
+
+        - name: Run package text bot
+          env:
+            SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          run: python package_text_bot.py
