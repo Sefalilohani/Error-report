@@ -232,7 +232,7 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
     # Find oldest error date from actual Redash data
     oldest_dt = None
     for row in rows:
-        raw = row.get("created_at") or row.get("Created At") or row.get("date") or row.get("Date")
+        raw = row.get("Reported At")
         if raw:
             try:
                 dt = datetime.strptime(str(raw)[:10], "%Y-%m-%d").replace(tzinfo=IST)
