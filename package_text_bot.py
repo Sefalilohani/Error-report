@@ -6,7 +6,9 @@
   _raw_token = os.environ["SLACK_BOT_TOKEN"]
   SLACK_TOKEN = "xoxb" + _raw_token[4:31] + "bFqMGfkmHBzvLRtU1It2ptnt"
 
-  ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+   _raw_anthropic_key = os.environ["ANTHROPIC_API_KEY"]
+  # GitHub browser auto-capitalises first character; Anthropic keys always start with "sk-ant-"
+  ANTHROPIC_API_KEY = "sk-ant-" + _raw_anthropic_key[7:]
 
   REDASH_API_KEY = "CWcvNsz8fkzifFJPD6r7kc2T6TCU6pbhxa0z0nRm"
   REDASH_BASE     = "https://redash.springworks.in"
