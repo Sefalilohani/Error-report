@@ -8,7 +8,8 @@ import urllib.parse
 # ── CONFIG ─────────────────────────────────────────────────────
 
 _raw_token = os.environ["SLACK_BOT_TOKEN"]
-SLACK_TOKEN = _raw_token[:4].lower() + _raw_token[4:]  # Fix auto-capitalized prefix (Xoxb → xoxb), preserve rest
+_fixed = _raw_token[:4].lower() + _raw_token[4:]   # Fix X→x (browser autocapitalizes first char)
+SLACK_TOKEN = _fixed[:-8] + _fixed[-8:].replace("1it2ptnt", "1It2ptnt")  # Fix i→I (browser autocorrects uppercase I)
 
 REDASH_API_KEY = "sMdXlebHKozPGyJjOfAhRpH0S7ggmsSNE8GR5zc7"
 
