@@ -304,14 +304,9 @@ def run_report():
         print(f"Posted. Thread ts: {ts}")
     else:
         print(f"Replying in Slack thread ({REPORT_TYPE} report)")
-        try:
-            ts = find_9am_thread_ts()
-            post_slack(message, ts)
-            print(f"Replied in thread: {ts}")
-        except Exception as e:
-            print(f"Warning: Could not find 9am thread ({e}). Posting as new message.")
-            ts = post_slack(message)
-            print(f"Posted as new message. ts: {ts}")
+        ts = find_9am_thread_ts()
+        post_slack(message, ts)
+        print(f"Replied in thread: {ts}")
 
 
 if __name__ == "__main__":
