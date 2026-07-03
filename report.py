@@ -206,6 +206,100 @@ def find_9am_thread_ts():
     )
 
 
+# ── BUILD TASK ASSIGNMENT MESSAGE ───────────────────────────────
+
+SELVA_SLACK_ID = "UN1E2L4G0"
+
+
+def build_task_assignment_message(rows, slack_users):
+    # Agent names and count from the "Task Assignment" pivot (id 3951): how many
+    # open errors are currently sitting on each assignee's task queue.
+    counts = defaultdict(int)
+    name_by_key = {}
+
+    for row in rows:
+        assigned_name = row.get("Task Assigned To")
+        if not assigned_name:
+            continue  # unassigned — covered by build_unassigned_message instead
+        assigned_email = (row.get("Task Assigned To Email") or "").lower()
+        key = assigned_email or f"name:{assigned_name}"
+        counts[key] += 1
+        name_by_key[key] = assigned_name
+
+    sorted_assignees = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    lines = []
+    for i, (key, count) in enumerate(sorted_assignees, 1):
+        slack_id = slack_users.get(key)
+        mention = f"<@{slack_id}>" if slack_id else name_by_key.get(key, key)
+        lines.append(f"{i}. {mention} - {count}")
+
+    total = sum(counts.values())
+
+    text = (
+        "\U0001f4cc *Task Assignment*\n"
+        "_These cases are assigned to you on SV. Kindly check and action._\n\n"
+        + "\n".join(lines)
+        + f"\n*Total - {total}*"
+    )
+    return text
+
+
+# ── BUILD UNASSIGNED ERRORS MESSAGE ─────────────────────────────
+
+def build_unassigned_message(rows):
+    # Mirrors the "Unassigned Errors" pivot (id 3952): Task Type x Check Type,
+    # restricted to rows with no Task Assigned To.
+    pivot = defaultdict(lambda: defaultdict(int))
+    for row in rows:
+        if row.get("Task Assigned To"):
+            continue
+        task_type = row.get("Task Type") or "No Task"
+        check_type = row.get("Check Type") or "Unknown"
+        pivot[task_type][check_type] += 1
+
+    task_types = sorted(pivot.keys())
+    check_types = sorted(set(ct for tt in pivot.values() for ct in tt.keys()))
+
+    if not check_types:
+        table = "```\nNo unassigned errors.\n```"
+        grand_total = 0
+    else:
+        tt_width = max(20, max(len(t) for t in task_types) + 2)
+        ct_width = max(9, max(len(ct) for ct in check_types) + 2)
+
+        header = f"{'Task Type':<{tt_width}}" + "".join(f"{ct:>{ct_width}}" for ct in check_types) + f"{'Total':>8}"
+        separator = "-" * len(header)
+
+        lines = ["```", header, separator]
+        row_totals = {}
+        for tt in task_types:
+            row_total = sum(pivot[tt].values())
+            row_totals[tt] = row_total
+            line = f"{tt:<{tt_width}}"
+            for ct in check_types:
+                val = pivot[tt].get(ct, 0)
+                line += f"{val if val else '-':>{ct_width}}"
+            line += f"{row_total:>8}"
+            lines.append(line)
+
+        col_totals = {ct: sum(pivot[tt].get(ct, 0) for tt in task_types) for ct in check_types}
+        grand_total = sum(row_totals.values())
+
+        lines.append(separator)
+        totals_line = f"{'Total':<{tt_width}}" + "".join(f"{col_totals[ct]:>{ct_width}}" for ct in check_types) + f"{grand_total:>8}"
+        lines.append(totals_line)
+        lines.append("```")
+        table = "\n".join(lines)
+
+    text = (
+        "⚠️ *Unassigned Errors*\n"
+        f"<@{SELVA_SLACK_ID}> please review the unassigned errors below.\n\n"
+        f"{table}\n\n"
+        f"*Total Unassigned - {grand_total}*"
+    )
+    return text
+
+
 # ── BUILD REPORT MESSAGE ───────────────────────────────────────
 
 def build_report(rows, slack_users, start_dt, end_dt, report_type):
@@ -298,15 +392,23 @@ def run_report():
 
     if REPORT_TYPE == "9am":
         print("Posting new Slack message (9am report)")
-        ts = post_slack(message)
+        thread_ts = post_slack(message)
         with open(THREAD_FILE, "w") as f:
-            f.write(ts)
-        print(f"Posted. Thread ts: {ts}")
+            f.write(thread_ts)
+        print(f"Posted. Thread ts: {thread_ts}")
     else:
         print(f"Replying in Slack thread ({REPORT_TYPE} report)")
-        ts = find_9am_thread_ts()
-        post_slack(message, ts)
-        print(f"Replied in thread: {ts}")
+        thread_ts = find_9am_thread_ts()
+        post_slack(message, thread_ts)
+        print(f"Replied in thread: {thread_ts}")
+
+    print("Posting task assignment breakdown...")
+    task_assignment_message = build_task_assignment_message(rows, slack_users)
+    post_slack(task_assignment_message, thread_ts)
+
+    print("Posting unassigned errors breakdown...")
+    unassigned_message = build_unassigned_message(rows)
+    post_slack(unassigned_message, thread_ts)
 
 
 if __name__ == "__main__":
