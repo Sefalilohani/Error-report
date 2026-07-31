@@ -93,9 +93,13 @@ def fetch_redash(start_date, end_date):
 
     poll_payload = {**payload, "max_age": 60}
 
-    for attempt in range(20):
-        time.sleep(3)
-        print(f"  Poll attempt {attempt + 1}/20...")
+    poll_interval = 5
+    max_wait_seconds = int(os.environ.get("REDASH_POLL_TIMEOUT_SECONDS", "600"))
+    max_attempts = max_wait_seconds // poll_interval
+
+    for attempt in range(max_attempts):
+        time.sleep(poll_interval)
+        print(f"  Poll attempt {attempt + 1}/{max_attempts}...")
         r2 = requests.post(url, headers=headers, json=poll_payload, timeout=30)
         if r2.status_code not in (200, 201):
             print(f"  Poll status {r2.status_code}: {r2.text[:200]}")
@@ -106,9 +110,13 @@ def fetch_redash(start_date, end_date):
             print(f"  Got result: {len(rows)} rows")
             return rows
         new_job = resp2.get("job", {})
-        print(f"  Still running, job status={new_job.get('status')}")
+        status = new_job.get("status")
+        print(f"  Still running, job status={status}")
+        # Redash job statuses: 1=queued, 2=started, 3=success, 4=failure, 5=cancelled
+        if status in (4, 5):
+            raise Exception(f"Redash job failed (status={status}): {new_job.get('error') or 'no error message returned'}")
 
-    raise Exception("Timed out waiting for Redash query result after 60 seconds")
+    raise Exception(f"Timed out waiting for Redash query result after {max_wait_seconds} seconds")
 
 
 # ── SLACK USERS ───────────────────────────────────────────────
