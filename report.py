@@ -372,7 +372,7 @@ def build_report(rows, slack_users, start_dt, end_dt, report_type):
         + f"\n*Total - {total}*\n\n"
         + f"\U0001f4ca <{redash_url}|View Full Report on Redash>\n\n"
         + "_Tagged agents: Please review and resolve/rectify your open errors at the earliest and acknowledge the message \U0001f64f_\n\n"
-        + "CC: <!subteam^S08T66C76CS> <@UPAMYUZAS> <@U05PP01Q1S9>"
+        + "CC: <!subteam^S08T66C76CS> <@UPAMYUZAS>"
     )
     return text
 
